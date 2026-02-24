@@ -1,0 +1,92 @@
+﻿services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: impactproof-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-impactproof}
+      POSTGRES_USER: ${POSTGRES_USER:-impactproof}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-impactproof}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-impactproof} -d ${POSTGRES_DB:-impactproof}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: impactproof-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: impactproof-backend
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-impactproof}:${POSTGRES_PASSWORD:-impactproof}@postgres:5432/${POSTGRES_DB:-impactproof}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app/backend
+      - ../.env:/app/.env:ro
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    container_name: impactproof-worker
+    env_file:
+      - ../.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../worker:/app/worker
+    command: ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info"]
+
+  frontend:
+    image: node:20-alpine
+    container_name: impactproof-frontend
+    profiles: ["ui"]
+    working_dir: /app/frontend
+    env_file:
+      - ../.env
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app/frontend
+    command: ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres_data:
