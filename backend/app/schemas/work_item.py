@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 class WorkItemRead(BaseModel):
     id: int
+    source_doc_id: int
     category: str
     problem: str
     action: str

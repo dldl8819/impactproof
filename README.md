@@ -12,6 +12,7 @@ ImpactProof is a local-first monorepo for turning raw operational evidence into 
    - Backend API: `http://localhost:8000`
    - API docs: `http://localhost:8000/docs`
    - Frontend (if enabled in compose with `--profile ui`): `http://localhost:5173`
+   - Postgres (host): `localhost:5433` (container `5432`)
 
 ### Common Compose Commands
 
@@ -52,3 +53,39 @@ ImpactProof is a local-first monorepo for turning raw operational evidence into 
 
 - LLM extraction/scoring is not implemented yet. Placeholder logic and TODOs are included in backend services and worker tasks.
 - Alembic migrations are included for initial database setup.
+
+## Manual Verification Flow (Ingest -> Extract -> Work Items)
+
+1. Ingest a source doc:
+   ```bash
+   curl -X POST http://localhost:8000/ingest/text \
+     -H "Content-Type: application/json" \
+     -d '{
+       "source_type":"ticket",
+       "title":"Payment timeout follow-up",
+       "content":"Connection pool tuning reduced timeout frequency.",
+       "occurred_at":"2026-05-01T08:00:00Z"
+     }'
+   ```
+2. Extract work items:
+   ```bash
+   curl -X POST http://localhost:8000/work-items/extract
+   ```
+3. Read work items:
+   ```bash
+   curl http://localhost:8000/work-items
+   ```
+4. Re-run extract with same source docs:
+   - Expected: `created_count` becomes `0`
+   - Meaning: duplicate extraction for the same `source_doc_id` is blocked.
+
+## Run Backend Tests
+
+From `backend/`:
+
+```bash
+python -m venv .venv
+./.venv/Scripts/Activate.ps1   # Windows PowerShell
+pip install -e .[dev]
+pytest
+```

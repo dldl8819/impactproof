@@ -11,24 +11,31 @@ def list_work_items(*, db) -> list[WorkItem]:
 
 def extract_work_items_from_sources(*, db) -> int:
     source_docs = list(db.scalars(select(SourceDoc).order_by(SourceDoc.id.asc())).all())
+    existing_source_doc_ids = set(
+        db.scalars(select(WorkItem.source_doc_id).where(WorkItem.source_doc_id.is_not(None))).all()
+    )
     created_count = 0
 
     for doc in source_docs:
+        if doc.id in existing_source_doc_ids:
+            continue
+
         # TODO: Replace placeholder extraction/scoring with async Celery + LLM pipeline.
         snippet = doc.content.strip().replace("\n", " ")[:220]
         work_item = WorkItem(
+            source_doc_id=doc.id,
             category="Operational Improvement",
             problem=f"Evidence captured from {doc.source_type}: {doc.title}",
             action=f"Placeholder extraction generated from source text snippet: {snippet}",
             result="Structured work item created for later review and refinement.",
             impact_score=min(max(len(doc.content) / 100.0, 1.0), 10.0),
             evidence_json={
-                "source_doc_id": doc.id,
                 "source_type": doc.source_type,
                 "title": doc.title,
             },
         )
         db.add(work_item)
+        existing_source_doc_ids.add(doc.id)
         created_count += 1
 
     if created_count:
